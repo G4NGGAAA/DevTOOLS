@@ -5,7 +5,7 @@ if(window.AryaDevTools){
  return;
 }
 
-const url="https://raw.githubusercontent.com/YOUR_USERNAME/arya-devtools/main/src/main.js";
+const url="https://raw.githubusercontent.com/G4NGGAAA/DevTOOLS/main/src/main.js";
 
 const code=await (await fetch(url)).text();
 
