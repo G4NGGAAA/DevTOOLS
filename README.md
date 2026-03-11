@@ -143,7 +143,7 @@ Menggunakan tema biru-hitam yang nyaman untuk debugging.
 
 # Struktur Project
 
-```
+```bash
 arya-devtools/
 │
 ├─ src/
@@ -179,7 +179,7 @@ Upload semua file project ke repository GitHub.
 Contoh struktur repository:
 
 ```
-https://github.com/USERNAME/arya-devtools
+https://github.com/G4NGGGAAA/DevTOOLS
 ```
 
 ---
@@ -197,7 +197,7 @@ Klik tombol **Raw** lalu salin URL.
 Contoh:
 
 ```
-https://raw.githubusercontent.com/USERNAME/arya-devtools/main/src/main.js
+https://raw.githubusercontent.com/G4NGGAAA/DevTOOLS/main/src/main.js
 ```
 
 ---
