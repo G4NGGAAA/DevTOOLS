@@ -1,506 +1,614 @@
-// Arya DevTools - main.js
+(function(){
 
-(function () {
+if(window.AryaDevTools)return
+window.AryaDevTools=true
 
-if (window.AryaDevTools) return
-window.AryaDevTools = true
+const logs=[]
+const startTime=performance.now()
 
-const logs = []
+/* ---------------------------
+FETCH INTERCEPT
+--------------------------- */
 
-/* -----------------------
-NETWORK INTERCEPT
------------------------ */
+const origFetch=window.fetch
 
-const originalFetch = window.fetch
+window.fetch=async(...args)=>{
 
-window.fetch = async (...args) => {
+const start=performance.now()
 
- const start = performance.now()
+const res=await origFetch(...args)
 
- const res = await originalFetch(...args)
+const clone=res.clone()
 
- const clone = res.clone()
+let body=null
 
- let body = null
+try{body=await clone.text()}catch{}
 
- try{
-  body = await clone.text()
- }catch{}
+logs.push({
+type:"fetch",
+method:"GET",
+url:args[0],
+status:res.status,
+time:(performance.now()-start).toFixed(0),
+response:body,
+requestBody:null
+})
 
- logs.push({
-  type:"fetch",
-  method:"GET",
-  url:args[0],
-  status:res.status,
-  time:(performance.now()-start).toFixed(0),
-  response:body,
-  requestBody:null
- })
+updateNetwork()
 
- updateNetwork()
-
- return res
+return res
 }
 
-const origOpen = XMLHttpRequest.prototype.open
-const origSend = XMLHttpRequest.prototype.send
+/* ---------------------------
+XHR INTERCEPT
+--------------------------- */
 
-XMLHttpRequest.prototype.open = function(method,url){
+const origOpen=XMLHttpRequest.prototype.open
+const origSend=XMLHttpRequest.prototype.send
 
- this._method = method
- this._url = url
+XMLHttpRequest.prototype.open=function(method,url){
 
- return origOpen.apply(this,arguments)
+this._method=method
+this._url=url
+
+return origOpen.apply(this,arguments)
+}
+
+XMLHttpRequest.prototype.send=function(body){
+
+const start=performance.now()
+
+this.addEventListener("load",()=>{
+
+logs.push({
+type:"xhr",
+method:this._method,
+url:this._url,
+status:this.status,
+time:(performance.now()-start).toFixed(0),
+response:this.responseText,
+requestBody:body
+})
+
+updateNetwork()
+
+})
+
+return origSend.apply(this,arguments)
 
 }
 
-XMLHttpRequest.prototype.send = function(body){
+/* ---------------------------
+STYLE
+--------------------------- */
 
- const start = performance.now()
+const style=document.createElement("style")
+style.innerHTML=`
 
- this.addEventListener("load",()=>{
-
-  logs.push({
-   type:"xhr",
-   method:this._method,
-   url:this._url,
-   status:this.status,
-   time:(performance.now()-start).toFixed(0),
-   response:this.responseText,
-   requestBody:body
-  })
-
-  updateNetwork()
-
- })
-
- return origSend.apply(this,arguments)
-
-}
-
-/* -----------------------
-UI
------------------------ */
-
-const panel = document.createElement("div")
-
-panel.style = `
+#arya-devtools{
 position:fixed;
 top:40px;
 right:40px;
-width:600px;
-height:420px;
-background:#0a0f1c;
+width:720px;
+height:480px;
+background:linear-gradient(180deg,#0b1220,#050913);
 border:1px solid #1e90ff;
-color:#9bd1ff;
+border-radius:10px;
+box-shadow:0 0 25px rgba(30,144,255,.4);
 font-family:monospace;
+color:#9fd4ff;
 z-index:999999;
-resize:both;
-overflow:hidden;
 display:flex;
 flex-direction:column;
-`
+resize:both;
+overflow:hidden;
+}
 
-/* header */
-
-const header = document.createElement("div")
-
-header.style = `
-background:#111a2e;
-padding:6px;
-cursor:move;
+#adt-header{
+background:linear-gradient(90deg,#0d1b33,#0a1426);
+padding:8px;
 display:flex;
 justify-content:space-between;
-`
+cursor:move;
+}
 
-header.innerHTML = `
-<b>Arya DevTools</b>
-<div>
-<button id="adt_min">_</button>
-<button id="adt_close">X</button>
-</div>
-`
-
-panel.appendChild(header)
-
-/* tabs */
-
-const tabs = document.createElement("div")
-
-tabs.style = `
+#adt-tabs{
 display:flex;
 gap:6px;
 padding:6px;
-background:#0e1629;
+background:#0c1629;
+border-bottom:1px solid #1e90ff33;
+}
+
+#adt-tabs button{
+background:#111a2e;
+border:1px solid #1e90ff44;
+color:#9fd4ff;
+padding:4px 8px;
+cursor:pointer;
+border-radius:4px;
+}
+
+#adt-tabs button:hover{
+background:#1e90ff22;
+}
+
+#adt-content{
+flex:1;
+overflow:auto;
+padding:8px;
+font-size:12px;
+}
+
+#adt-network-table{
+width:100%;
+border-collapse:collapse;
+}
+
+#adt-network-table td{
+border-bottom:1px solid #1e90ff22;
+padding:4px;
+}
+
+.adt-url{
+color:#6fbfff;
+word-break:break-all;
+}
+
+pre{
+white-space:pre-wrap;
+}
+
+`
+document.head.appendChild(style)
+
+/* ---------------------------
+PANEL
+--------------------------- */
+
+const panel=document.createElement("div")
+panel.id="arya-devtools"
+
+panel.innerHTML=`
+
+<div id="adt-header">
+<b>Arya DevTools</b>
+<div>
+<button id="adt-min">_</button>
+<button id="adt-close">X</button>
+</div>
+</div>
+
+<div id="adt-tabs"></div>
+
+<div id="adt-content"></div>
+
 `
 
-const tabNames = [
+document.body.appendChild(panel)
+
+const content=document.getElementById("adt-content")
+const tabs=document.getElementById("adt-tabs")
+
+/* ---------------------------
+TABS
+--------------------------- */
+
+const tabList=[
 "Network",
 "Request",
 "Response",
 "Endpoints",
 "Storage",
 "Cookies",
+"Console",
+"Performance",
 "Tools"
 ]
 
-tabNames.forEach(name=>{
-
- const btn = document.createElement("button")
- btn.textContent = name
-
- btn.onclick = ()=>showTab(name)
-
- tabs.appendChild(btn)
-
+tabList.forEach(t=>{
+const b=document.createElement("button")
+b.textContent=t
+b.onclick=()=>showTab(t)
+tabs.appendChild(b)
 })
-
-panel.appendChild(tabs)
-
-/* content */
-
-const content = document.createElement("div")
-
-content.style = `
-flex:1;
-overflow:auto;
-padding:8px;
-`
-
-panel.appendChild(content)
-
-document.body.appendChild(panel)
-
-/* -----------------------
-TAB SYSTEM
------------------------ */
 
 function showTab(name){
 
- if(name==="Network") renderNetwork()
- if(name==="Request") renderRequest()
- if(name==="Response") renderResponse()
- if(name==="Endpoints") renderEndpoints()
- if(name==="Storage") renderStorage()
- if(name==="Cookies") renderCookies()
- if(name==="Tools") renderTools()
+if(name==="Network")renderNetwork()
+if(name==="Request")renderRequest()
+if(name==="Response")renderResponse()
+if(name==="Endpoints")renderEndpoints()
+if(name==="Storage")renderStorage()
+if(name==="Cookies")renderCookies()
+if(name==="Console")renderConsole()
+if(name==="Performance")renderPerf()
+if(name==="Tools")renderTools()
 
 }
 
-/* -----------------------
+/* ---------------------------
 NETWORK TAB
------------------------ */
+--------------------------- */
 
 function renderNetwork(){
 
- content.innerHTML = "<h3>Network</h3>"
+content.innerHTML=`
 
- logs.forEach((log,i)=>{
+<h3>Network</h3>
 
-  const div = document.createElement("div")
+<input id="adt-search" placeholder="search url">
+<select id="adt-filter">
+<option value="">ALL</option>
+<option>GET</option>
+<option>POST</option>
+</select>
 
-  div.textContent = `[${i}] ${log.method} ${log.status} ${log.time}ms`
+<table id="adt-network-table">
+<thead>
+<tr>
+<td>#</td>
+<td>Method</td>
+<td>Status</td>
+<td>Time</td>
+<td>URL</td>
+</tr>
+</thead>
+<tbody id="adt-network-body"></tbody>
+</table>
 
-  const url = document.createElement("div")
+`
 
-  url.textContent = log.url
+updateNetwork()
 
-  url.style.color="#6fbfff"
-
-  content.appendChild(div)
-  content.appendChild(url)
-  content.appendChild(document.createElement("hr"))
-
- })
+document.getElementById("adt-search").oninput=updateNetwork
+document.getElementById("adt-filter").onchange=updateNetwork
 
 }
 
 function updateNetwork(){
+
+const body=document.getElementById("adt-network-body")
+if(!body)return
+
+const search=document.getElementById("adt-search")?.value||""
+const filter=document.getElementById("adt-filter")?.value||""
+
+body.innerHTML=""
+
+logs.forEach((l,i)=>{
+
+if(search&&!l.url.includes(search))return
+if(filter&&l.method!==filter)return
+
+const tr=document.createElement("tr")
+
+tr.innerHTML=`
+<td>${i}</td>
+<td>${l.method}</td>
+<td>${l.status}</td>
+<td>${l.time}ms</td>
+<td class="adt-url">${l.url}</td>
+`
+
+body.appendChild(tr)
+
+})
+
 }
 
-/* -----------------------
+/* ---------------------------
 REQUEST TAB
------------------------ */
+--------------------------- */
 
 function renderRequest(){
 
- content.innerHTML = `
-<h3>Request Viewer</h3>
-<input id="req_index" placeholder="index">
-<button id="req_btn">view</button>
-<pre id="req_out"></pre>
+content.innerHTML=`
+
+<h3>Request</h3>
+
+<input id="req-i" placeholder="index">
+<button id="req-btn">View</button>
+
+<pre id="req-out"></pre>
+
 `
 
- document.getElementById("req_btn").onclick = ()=>{
+document.getElementById("req-btn").onclick=()=>{
 
-  const i = document.getElementById("req_index").value
+const i=document.getElementById("req-i").value
+const log=logs[i]
 
-  const log = logs[i]
+if(!log)return
 
-  if(!log) return
-
-  document.getElementById("req_out").textContent =
-  JSON.stringify({
-   url:log.url,
-   method:log.method,
-   body:log.requestBody
-  },null,2)
-
- }
+document.getElementById("req-out").textContent=
+JSON.stringify({
+url:log.url,
+method:log.method,
+body:log.requestBody
+},null,2)
 
 }
 
-/* -----------------------
+}
+
+/* ---------------------------
 RESPONSE TAB
------------------------ */
+--------------------------- */
 
 function renderResponse(){
 
- content.innerHTML = `
-<h3>Response Viewer</h3>
-<input id="res_index" placeholder="index">
-<button id="res_btn">view</button>
-<pre id="res_out"></pre>
+content.innerHTML=`
+
+<h3>Response</h3>
+
+<input id="res-i" placeholder="index">
+<button id="res-btn">View</button>
+
+<pre id="res-out"></pre>
+
 `
 
- document.getElementById("res_btn").onclick = ()=>{
+document.getElementById("res-btn").onclick=()=>{
 
-  const i = document.getElementById("res_index").value
+const i=document.getElementById("res-i").value
+const log=logs[i]
 
-  const log = logs[i]
+if(!log)return
 
-  if(!log) return
+let out=log.response
 
-  let out = log.response
+try{out=JSON.stringify(JSON.parse(out),null,2)}catch{}
 
-  try{
-   out = JSON.stringify(JSON.parse(out),null,2)
-  }catch{}
-
-  document.getElementById("res_out").textContent = out
-
- }
+document.getElementById("res-out").textContent=out
 
 }
 
-/* -----------------------
+}
+
+/* ---------------------------
 ENDPOINT SCANNER
------------------------ */
+--------------------------- */
 
 function renderEndpoints(){
 
- content.innerHTML = "<h3>Endpoint Scanner</h3>"
+content.innerHTML="<h3>Endpoints</h3>"
 
- const scripts = [...document.querySelectorAll("script")]
+const scripts=[...document.querySelectorAll("script")]
 
- const found = new Set()
+const found=new Set()
 
- scripts.forEach(s=>{
+scripts.forEach(s=>{
 
-  const text = s.innerHTML
+const text=s.innerHTML
 
-  const urls = text.match(/https?:\/\/[^\s"'`]+/g)
+const urls=text.match(/https?:\/\/[^\s"'`]+/g)
 
-  if(urls) urls.forEach(u=>found.add(u))
+if(urls)urls.forEach(u=>found.add(u))
 
- })
+})
 
- found.forEach(url=>{
+found.forEach(u=>{
 
-  const div = document.createElement("div")
+const d=document.createElement("div")
+d.textContent=u
+d.className="adt-url"
 
-  div.textContent = url
+content.appendChild(d)
 
-  div.style.color="#6fbfff"
-
-  content.appendChild(div)
-
- })
+})
 
 }
 
-/* -----------------------
-STORAGE VIEWER
------------------------ */
+/* ---------------------------
+STORAGE
+--------------------------- */
 
 function renderStorage(){
 
- content.innerHTML = "<h3>LocalStorage</h3>"
+content.innerHTML="<h3>LocalStorage</h3>"
 
- for(let i=0;i<localStorage.length;i++){
+for(let i=0;i<localStorage.length;i++){
 
-  const key = localStorage.key(i)
+const k=localStorage.key(i)
+const v=localStorage.getItem(k)
 
-  const val = localStorage.getItem(key)
+const d=document.createElement("div")
+d.textContent=k+" = "+v
 
-  const div = document.createElement("div")
-
-  div.textContent = key+" = "+val
-
-  content.appendChild(div)
-
- }
-
- content.innerHTML += "<h3>SessionStorage</h3>"
-
- for(let i=0;i<sessionStorage.length;i++){
-
-  const key = sessionStorage.key(i)
-
-  const val = sessionStorage.getItem(key)
-
-  const div = document.createElement("div")
-
-  div.textContent = key+" = "+val
-
-  content.appendChild(div)
-
- }
+content.appendChild(d)
 
 }
 
-/* -----------------------
+content.innerHTML+="<h3>SessionStorage</h3>"
+
+for(let i=0;i<sessionStorage.length;i++){
+
+const k=sessionStorage.key(i)
+const v=sessionStorage.getItem(k)
+
+const d=document.createElement("div")
+d.textContent=k+" = "+v
+
+content.appendChild(d)
+
+}
+
+}
+
+/* ---------------------------
 COOKIES
------------------------ */
+--------------------------- */
 
 function renderCookies(){
 
- content.innerHTML = "<h3>Cookies</h3>"
+content.innerHTML="<h3>Cookies</h3>"
 
- document.cookie.split(";").forEach(c=>{
+document.cookie.split(";").forEach(c=>{
 
-  const div = document.createElement("div")
+const d=document.createElement("div")
+d.textContent=c
 
-  div.textContent = c
+content.appendChild(d)
 
-  content.appendChild(div)
-
- })
+})
 
 }
 
-/* -----------------------
+/* ---------------------------
+CONSOLE
+--------------------------- */
+
+function renderConsole(){
+
+content.innerHTML=`
+
+<h3>Console</h3>
+
+<textarea id="adt-eval" style="width:100%;height:120px"></textarea>
+
+<button id="adt-run">Run</button>
+
+<pre id="adt-console-out"></pre>
+
+`
+
+document.getElementById("adt-run").onclick=()=>{
+
+try{
+
+const code=document.getElementById("adt-eval").value
+const result=eval(code)
+
+document.getElementById("adt-console-out").textContent=result
+
+}catch(e){
+
+document.getElementById("adt-console-out").textContent=e
+
+}
+
+}
+
+}
+
+/* ---------------------------
+PERFORMANCE
+--------------------------- */
+
+function renderPerf(){
+
+const time=(performance.now()-startTime).toFixed(0)
+
+content.innerHTML=`
+
+<h3>Performance</h3>
+
+Page runtime: ${time} ms
+
+Requests captured: ${logs.length}
+
+`
+
+}
+
+/* ---------------------------
 TOOLS
------------------------ */
+--------------------------- */
 
 function renderTools(){
 
- content.innerHTML = `
+content.innerHTML=`
+
 <h3>Tools</h3>
 
-<button id="export_logs">Export Logs</button>
-<button id="replay_req">Replay Request</button>
+<button id="export">Export Logs</button>
+<button id="replay">Replay Request</button>
 
-<input id="search_q" placeholder="search url">
-<button id="search_btn">Search</button>
+<pre id="tools-out"></pre>
 
-<pre id="tool_out"></pre>
 `
 
- document.getElementById("export_logs").onclick = ()=>{
+document.getElementById("export").onclick=()=>{
 
-  const blob = new Blob([JSON.stringify(logs,null,2)],{
-   type:"application/json"
-  })
+const blob=new Blob([JSON.stringify(logs,null,2)],{type:"application/json"})
 
-  const a = document.createElement("a")
+const a=document.createElement("a")
 
-  a.href = URL.createObjectURL(blob)
-  a.download = "network_logs.json"
-
-  a.click()
-
- }
-
- document.getElementById("replay_req").onclick = async ()=>{
-
-  const i = prompt("request index")
-
-  const log = logs[i]
-
-  if(!log) return
-
-  const res = await fetch(log.url,{
-   method:log.method,
-   body:log.requestBody
-  })
-
-  const text = await res.text()
-
-  document.getElementById("tool_out").textContent = text
-
- }
-
- document.getElementById("search_btn").onclick = ()=>{
-
-  const q = document.getElementById("search_q").value
-
-  const result = logs.filter(l=>l.url.includes(q))
-
-  document.getElementById("tool_out").textContent =
-  JSON.stringify(result,null,2)
-
- }
+a.href=URL.createObjectURL(blob)
+a.download="network_logs.json"
+a.click()
 
 }
 
-/* -----------------------
+document.getElementById("replay").onclick=async()=>{
+
+const i=prompt("request index")
+
+const log=logs[i]
+
+if(!log)return
+
+const res=await fetch(log.url,{
+method:log.method,
+body:log.requestBody
+})
+
+const text=await res.text()
+
+document.getElementById("tools-out").textContent=text
+
+}
+
+}
+
+/* ---------------------------
 DRAG PANEL
------------------------ */
+--------------------------- */
 
-let isDrag = false
-let offsetX = 0
-let offsetY = 0
+let drag=false
+let ox=0
+let oy=0
 
-header.onmousedown = e=>{
+const header=document.getElementById("adt-header")
 
- isDrag = true
+header.onmousedown=e=>{
 
- offsetX = e.clientX - panel.offsetLeft
- offsetY = e.clientY - panel.offsetTop
-
-}
-
-document.onmousemove = e=>{
-
- if(!isDrag) return
-
- panel.style.left = (e.clientX-offsetX)+"px"
- panel.style.top = (e.clientY-offsetY)+"px"
+drag=true
+ox=e.clientX-panel.offsetLeft
+oy=e.clientY-panel.offsetTop
 
 }
 
-document.onmouseup = ()=>{
+document.onmousemove=e=>{
 
- isDrag = false
+if(!drag)return
 
-}
-
-/* -----------------------
-MIN / CLOSE
------------------------ */
-
-document.getElementById("adt_close").onclick = ()=>{
-
- panel.remove()
+panel.style.left=(e.clientX-ox)+"px"
+panel.style.top=(e.clientY-oy)+"px"
 
 }
 
-document.getElementById("adt_min").onclick = ()=>{
+document.onmouseup=()=>drag=false
 
- if(content.style.display==="none"){
+/* ---------------------------
+MIN CLOSE
+--------------------------- */
 
-  content.style.display="block"
+document.getElementById("adt-close").onclick=()=>panel.remove()
 
- }else{
+document.getElementById("adt-min").onclick=()=>{
 
-  content.style.display="none"
-
- }
+if(content.style.display==="none")
+content.style.display="block"
+else
+content.style.display="none"
 
 }
 
-/* start */
+/* ---------------------------
+START
+--------------------------- */
 
 showTab("Network")
 
