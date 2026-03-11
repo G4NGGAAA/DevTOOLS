@@ -1,0 +1,7 @@
+{
+  "name": "arya-devtools",
+  "version": "1.0.0",
+  "description": "Mini browser DevTools panel for debugging web applications",
+  "main": "src/main.js",
+  "license": "MIT"
+}
